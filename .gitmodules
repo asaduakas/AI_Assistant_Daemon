@@ -1,0 +1,3 @@
+[submodule "llama-cpp-python"]
+	path = llama-cpp-python
+	url = https://github.com/abetlen/llama-cpp-python.git

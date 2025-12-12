@@ -1,0 +1,73 @@
+# ----------------------
+# Python
+# ----------------------
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.pyc
+*.pdb
+*.egg-info/
+dist/
+build/
+.eggs/
+*.so
+
+# Virtual environments
+llm-venv/
+venv/
+ENV/
+env/
+
+# Pip cache
+pip-log.txt
+pip-delete-this-directory.txt
+
+# ----------------------
+# llama.cpp / C++ build
+# ----------------------
+llama.cpp/build/
+llama-cpp-python
+llama-cpp-python/vendor/llama.cpp/build/
+*.o
+*.obj
+*.exe
+*.out
+*.log
+*.dSYM/
+CMakeFiles/
+CMakeCache.txt
+Makefile
+cmake_install.cmake
+*.gch
+
+# ----------------------
+# IDE / Editor
+# ----------------------
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# ----------------------
+# OS / Temp
+# ----------------------
+.DS_Store
+Thumbs.db
+*.swp
+*.tmp
+*.bak
+*.orig
+
+# ----------------------
+# Other caches
+# ----------------------
+__pycache__/
+*.pytest_cache/
+*.mypy_cache/
+.tox/
+
+# ----------------------
+# Models
+# ----------------------
+models/
