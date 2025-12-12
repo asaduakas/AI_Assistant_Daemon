@@ -27,7 +27,6 @@ pip-delete-this-directory.txt
 # llama.cpp / C++ build
 # ----------------------
 llama.cpp/build/
-llama-cpp-python
 llama-cpp-python/vendor/llama.cpp/build/
 *.o
 *.obj
