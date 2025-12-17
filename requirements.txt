@@ -3,3 +3,5 @@ uvicorn
 pydantic
 llama-cpp-python
 python-multipart
+chromadb
+sentence-transformers
