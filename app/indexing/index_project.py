@@ -1,17 +1,12 @@
-import ast, hashlib, os
+import ast, hashlib, logging
 from pathlib import Path
-from typing import Iterator, Tuple, List, Sequence, Any
+from typing import Iterator, Tuple, List, Any
+import numpy as np
 
 from app.config import settings
 from app.retrieval.chroma_store import get_chunks_collection
 from llama_cpp import Llama
 
-#---CONFIG---
-ROOT_DIR = Path.home() / "AI_Assistant_Daemon"
-PROJECT_ID = "AI_Assistant_Daemon"
-SUPPORTED_EXTENSIONS = {".py"}
-
-#---EMBEDDING MODEL---
 embedding_model = Llama(
     model_path=str(settings.MODEL_PATH),
     embedding=True,
@@ -24,23 +19,45 @@ embedding_model = Llama(
 
 #---helpers---
 def iter_source_files(root: Path) -> Iterator[Path]:
-    """
-    Returns an iterator from root to below.
-    
-    :param root: Spawning point
-    :type root: Path
-    :return: Iterator 
-    :rtype: Iterator[Path]
-    """
-    for path in root.rglob("*"):
-        if path.suffix in SUPPORTED_EXTENSIONS and path.is_file():
-            yield path
+    for item in settings.INCLUDE_DIRS:
+        target = root / item
+
+        if target.is_file() & (target.suffix in settings.SUPPORTED_EXTENSIONS):
+            yield target
+
+        elif target.is_dir():
+            for path in target.rglob("*"):
+                if path.is_file() and path.suffix in settings.SUPPORTED_EXTENSIONS:
+                    yield path
 
 def read_file(path: Path) -> str:
     return path.read_text(encoding="utf-8", errors="ignore")
 
 def sha1(text:str) -> str:
     return hashlib.sha1(text.encode("utf-8")).hexdigest()
+
+def assert_embedding_dim(vec: List[float]) -> None:
+    if len(vec) != settings.EMBED_DIM:
+        raise ValueError(f"Embedding dim mismatch: expected {settings.EMBED_DIM}, got {len(vec)}")
+    
+def chunk_stats(text:str) -> dict:
+    return{
+        "chars": len(text),
+        "lines": text.count("\n") + 1,
+        "words": len(text.split())
+    }
+
+def mean_pool(vectors: List[List[float]]) -> List[float]:
+    if not vectors:
+        raise ValueError("vectors must not be empty")
+
+    arr = np.asarray(vectors, dtype=float)
+
+    if arr.ndim != 2:
+        raise ValueError("vectors must be a 2D array")
+
+    return arr.mean(axis=0).tolist()
+
 
 #---CHUNKING (Python AST)---
 def python_method_chunks(source: str) -> Iterator[Tuple[str, int, int, str]]:
@@ -113,6 +130,13 @@ def collect_chunks(root_dir: Path, project_id: str) -> Tuple[List[str], List[dic
                 f"{root_dir}|{relpath}|{chunk_kind}|{symbol}|{start}|{end}|{stat.st_mtime_ns}"
             )
 
+            ch_stats = chunk_stats(chunk_text)
+            if ch_stats["chars"] > 6000:
+                print(
+                    f"[LARGE CHUNK] {relpath}:{start}-{end}"
+                    f"chars={ch_stats['chars']} lines={ch_stats['lines']}"
+                )
+
             documents.append(chunk_text)
             ids.append(chunk_id)
             metadatas.append(
@@ -134,18 +158,12 @@ def collect_chunks(root_dir: Path, project_id: str) -> Tuple[List[str], List[dic
 
 def normalize_embeddings(res: Any) -> List[List[float]]:
     """
-    Normalize embedding model output into List[List[float]].
-
-    Handles:
-    - tuple returns
-    - single-vector returns
-    - batch returns
-    - numpy arrays
+    Normalize llama.cpp embedding outputs into:
+        List[List[float]]  # one vector per document
     """
-    # Unwrap (embeddings, metadata) tuples
     emb = res[0] if isinstance(res, tuple) else res
 
-    # Convert numpy arrays to Python lists
+    # Convert numpy arrays
     try:
         import numpy as np
         if isinstance(emb, np.ndarray):
@@ -156,12 +174,34 @@ def normalize_embeddings(res: Any) -> List[List[float]]:
     if not emb:
         raise ValueError("Empty embedding result")
 
-    # Single vector: [float, float, ...]
+    # Case 1: single vector -> one doc
     if isinstance(emb[0], (int, float)):
         return [emb]
 
-    # Batch of vectors: [[float, ...], [float, ...]]
-    return list(emb)
+    # Case 2: token embeddings for ONE document
+    # shape: tokens × dim
+    if (
+        isinstance(emb[0], list)
+        and emb
+        and isinstance(emb[0][0], (int, float))
+    ):
+        return [mean_pool(emb)]
+
+    # Case 3: batched token embeddings
+    # shape: docs × tokens × dim
+    if (
+        isinstance(emb[0], list)
+        and emb
+        and isinstance(emb[0][0], list)
+        and isinstance(emb[0][0][0], (int, float))
+    ):
+        return [mean_pool(doc_tokens) for doc_tokens in emb]
+
+    raise ValueError(
+        f"Unknown embedding structure: "
+        f"{type(emb)} / sample={type(emb[0])}"
+    )
+
 
 def embed_one_document(doc: str, embedding_model: Any,) -> List[float]:
     """
@@ -171,8 +211,10 @@ def embed_one_document(doc: str, embedding_model: Any,) -> List[float]:
     """
     res = embedding_model.embed(doc)
     batch = normalize_embeddings(res)
+    vec = batch[0]
+    assert_embedding_dim(vec)
 
-    return batch[0]
+    return vec
 
 def embed_batch(batch: List[str], embedding_model: Any,) -> List[List[float]]:
     """
@@ -185,6 +227,9 @@ def embed_batch(batch: List[str], embedding_model: Any,) -> List[List[float]]:
 
         if len(embeddings) != len(batch):
             raise ValueError("Batch size mismatch")
+
+        for vec in embeddings:
+            assert_embedding_dim(vec)
 
         return embeddings
 
@@ -199,11 +244,10 @@ def embed_batch(batch: List[str], embedding_model: Any,) -> List[List[float]]:
             except Exception as e2:
                 print(f"  Failed doc {idx} in batch: {e2}")
                 results.append([])  # placeholder
-
         return results
 
 
-def embed_documents(documents: List[str], embedding_model: Any, batch_size: int = 8,
+def embed_documents(documents: List[str], embedding_model: Any, batch_size: int = 1,
                     ) -> Tuple[List[List[float]], List[int]]:
     """
     Embed documents in batches with safe fallback.
@@ -251,8 +295,8 @@ def index_project():
     collection = get_chunks_collection()
 
     documents, metadatas, ids = collect_chunks(
-        root_dir=ROOT_DIR,
-        project_id=PROJECT_ID,
+        root_dir=settings.ROOT_DIR,
+        project_id=settings.PROJECT_ID,
     )
 
     if not documents:
@@ -262,7 +306,7 @@ def index_project():
     embeddings, good_indices = embed_documents(
         documents=documents,
         embedding_model=embedding_model,
-        batch_size=8,
+        batch_size=1,
     )
 
     if not good_indices:
@@ -285,4 +329,10 @@ def index_project():
 
 
 if __name__ == "__main__":
+    from app.utils.logger import setup_logging
+    import logging
+    setup_logging()
+
+    logger = logging.getLogger(__name__)
+    logger.info("Application started")
     index_project()

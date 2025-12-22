@@ -8,8 +8,12 @@ from chromadb.api import ClientAPI
 
 from app.config import settings
 
+import logging 
+
 _client = None
 _chunks: Collection | None = None
+
+logger = logging.getLogger(__name__)
 
 def _get_client() -> ClientAPI:
     global _client
@@ -64,6 +68,7 @@ def get_chunks_collection() -> Collection:
             name=settings.COLLECTION_CHUNKS,
             metadata=safe_meta
         )
+
     return _chunks
 
 def collection_stats() -> dict:
