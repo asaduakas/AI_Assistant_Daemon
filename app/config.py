@@ -9,10 +9,12 @@ class Settings:
     N_GPU_LAYERS = 32
     N_THREADS = 6
     N_CTX: int = 4096
+    N_BATCH=256
+    MAX_TOKENS = 3800
 
 
     #Chroma persistent storage
-    CHROMA_DIR: Path = Path("chroma-knowledge")
+    CHROMA_DIR: Path = Path("chroma-persist")
     COLLECTION_CHUNKS: str = "chunks_v1"
 
 settings = Settings()
