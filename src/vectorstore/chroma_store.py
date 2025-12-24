@@ -6,7 +6,7 @@ import chromadb
 from chromadb.api.models.Collection import Collection
 from chromadb.api import ClientAPI
 
-from app.config import settings
+from src.config import settings
 
 import logging 
 

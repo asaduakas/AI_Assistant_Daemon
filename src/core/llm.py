@@ -1,4 +1,4 @@
-from app.model_loader import get_llm
+from src.core.model_loader import get_llm
 
 def generate_reply(prompt: str, max_tokens: int = 256):
     llm = get_llm()
